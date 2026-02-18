@@ -157,3 +157,7 @@ resource "tinymon_check" "nas_cert" {
   type         = "certificate"
 }
 ```
+
+## License
+
+[MIT](LICENSE)
