@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -36,14 +37,16 @@ type hostResourceModel struct {
 	Description types.String `tfsdk:"description"`
 	Topic       types.String `tfsdk:"topic"`
 	Enabled     types.Bool   `tfsdk:"enabled"`
+	Labels      types.Map    `tfsdk:"labels"`
 }
 
 type hostAPIRequest struct {
-	Address     string `json:"address"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description"`
-	Topic       string `json:"topic"`
-	Enabled     int    `json:"enabled"`
+	Address     string            `json:"address"`
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description"`
+	Topic       string            `json:"topic"`
+	Enabled     int               `json:"enabled"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 type hostAPIResponse struct {
@@ -101,6 +104,11 @@ func (r *hostResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Computed: true,
 				Default:  booldefault.StaticBool(true),
 			},
+			"labels": schema.MapAttribute{
+				Description: "Key-value labels for filtering in the dashboard.",
+				Optional:    true,
+				ElementType: types.StringType,
+			},
 		},
 	}
 }
@@ -137,6 +145,7 @@ func (r *hostResource) Create(ctx context.Context, req resource.CreateRequest, r
 		Description: plan.Description.ValueString(),
 		Topic:       plan.Topic.ValueString(),
 		Enabled:     enabled,
+		Labels:      expandLabels(plan.Labels),
 	}
 
 	var result hostAPIResponse
@@ -188,6 +197,7 @@ func (r *hostResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		Description: plan.Description.ValueString(),
 		Topic:       plan.Topic.ValueString(),
 		Enabled:     enabled,
+		Labels:      expandLabels(plan.Labels),
 	}
 
 	var result hostAPIResponse
@@ -226,4 +236,33 @@ func mapHostResponseToState(apiResp *hostAPIResponse, state *hostResourceModel) 
 	state.Description = types.StringValue(apiResp.Description)
 	state.Topic = types.StringValue(apiResp.Topic)
 	state.Enabled = types.BoolValue(apiResp.Enabled != 0)
+	// Labels are not returned by the GET API — preserve existing state value.
+}
+
+func expandLabels(labels types.Map) map[string]string {
+	if labels.IsNull() || labels.IsUnknown() {
+		return nil
+	}
+	result := make(map[string]string, len(labels.Elements()))
+	for k, v := range labels.Elements() {
+		if sv, ok := v.(types.String); ok {
+			result[k] = sv.ValueString()
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func flattenLabels(labels map[string]string) types.Map {
+	if len(labels) == 0 {
+		return types.MapNull(types.StringType)
+	}
+	elements := make(map[string]attr.Value, len(labels))
+	for k, v := range labels {
+		elements[k] = types.StringValue(v)
+	}
+	m, _ := types.MapValue(types.StringType, elements)
+	return m
 }
